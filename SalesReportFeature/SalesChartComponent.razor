@@ -1,0 +1,130 @@
+@page "/saleschart"
+@using System.Text.Json
+@using System.Text.Encodings.Web
+@inject IJSRuntime JS
+
+<PageTitle>График продаж</PageTitle>
+<h1>График продаж</h1>
+
+<div class="chart">
+    <canvas @ref="chartCanvas" width="900" height="400" aria-label="Столбчатый график продаж"></canvas>
+</div>
+
+<h2>Данные продаж</h2>
+<table>
+    <thead><tr><th>Товар</th><th>Продажи, руб.</th><th>Действие</th></tr></thead>
+    <tbody>
+        @foreach (SalesData item in salesData)
+        {
+            <tr @key="item">
+                <td><input aria-label="Товар" @bind="item.Product" @bind:event="oninput" /></td>
+                <td><input aria-label="Продажи" type="number" min="0" step="0.01" @bind="item.Amount" /></td>
+                <td><button @onclick="() => RemoveItem(item)">Удалить</button></td>
+            </tr>
+        }
+    </tbody>
+</table>
+<p><button @onclick="AddItem">Добавить товар</button></p>
+<p>После изменения суммы нажмите Tab или щёлкните вне поля — график обновится.</p>
+
+<h2>Сохранение в файл</h2>
+<p><button @onclick="ExportData">Скачать JSON</button></p>
+<label>Загрузить JSON: <InputFile OnChange="ImportData" accept=".json,application/json" /></label>
+<p>Загрузка заменяет текущие данные. Перед закрытием страницы скачайте изменения.</p>
+@if (!string.IsNullOrEmpty(message))
+{
+    <p>@message</p>
+}
+
+@code {
+    private ElementReference chartCanvas;
+    private List<SalesData> salesData = new List<SalesData>
+    {
+        new SalesData { Product = "Ноутбуки", Amount = 150000 },
+        new SalesData { Product = "Мониторы", Amount = 80000 },
+        new SalesData { Product = "Клавиатуры", Amount = 25000 }
+    };
+    private string message = string.Empty;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        List<string> labels = new List<string>();
+        List<decimal> amounts = new List<decimal>();
+        foreach (SalesData item in salesData)
+        {
+            labels.Add(item.Product);
+            amounts.Add(item.Amount);
+        }
+        await JS.InvokeVoidAsync("salesChart.draw", chartCanvas, labels, amounts);
+    }
+
+    private void AddItem()
+    {
+        SalesData item = new SalesData();
+        item.Product = "Новый товар";
+        item.Amount = 0;
+        salesData.Add(item);
+    }
+
+    private void RemoveItem(SalesData item)
+    {
+        salesData.Remove(item);
+    }
+
+    private bool CheckData(List<SalesData> data)
+    {
+        if (data == null)
+        {
+            return false;
+        }
+        foreach (SalesData item in data)
+        {
+            if (item == null || string.IsNullOrWhiteSpace(item.Product) || item.Amount < 0)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private async Task ExportData()
+    {
+        if (!CheckData(salesData))
+        {
+            message = "Укажите названия товаров и неотрицательные суммы продаж.";
+            return;
+        }
+        JsonSerializerOptions options = new JsonSerializerOptions();
+        options.WriteIndented = true;
+        options.Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping;
+        string json = JsonSerializer.Serialize(salesData, options);
+        await JS.InvokeVoidAsync("salesChart.download", json);
+        message = string.Empty;
+    }
+
+    private async Task ImportData(InputFileChangeEventArgs e)
+    {
+        try
+        {
+            using (Stream stream = e.File.OpenReadStream(5 * 1024 * 1024))
+            {
+                List<SalesData> data = await JsonSerializer.DeserializeAsync<List<SalesData>>(stream);
+                if (!CheckData(data))
+                {
+                    message = "В файле должны быть товары с названиями и неотрицательными суммами продаж.";
+                    return;
+                }
+                salesData = data;
+                message = "Данные загружены.";
+            }
+        }
+        catch (JsonException)
+        {
+            message = "Не удалось прочитать JSON с данными продаж.";
+        }
+        catch (IOException)
+        {
+            message = "Не удалось прочитать файл. Максимальный размер — 5 МБ.";
+        }
+    }
+}

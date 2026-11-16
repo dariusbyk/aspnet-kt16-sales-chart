@@ -1,0 +1,36 @@
+@using System.Reflection
+@using Microsoft.AspNetCore.Components.WebAssembly.Services
+@inject LazyAssemblyLoader AssemblyLoader
+
+<Router AppAssembly="@typeof(App).Assembly"
+        AdditionalAssemblies="@loadedAssemblies"
+        OnNavigateAsync="LoadPage">
+    <Found Context="routeData">
+        <RouteView RouteData="@routeData" DefaultLayout="@typeof(MainLayout)" />
+    </Found>
+    <Navigating>
+        <p>Загрузка страницы...</p>
+    </Navigating>
+    <NotFound>
+        <LayoutView Layout="@typeof(MainLayout)">
+            <p>Страница не найдена.</p>
+        </LayoutView>
+    </NotFound>
+</Router>
+
+@code {
+    private List<Assembly> loadedAssemblies = new List<Assembly>();
+    private bool salesLoaded = false;
+
+    private async Task LoadPage(NavigationContext context)
+    {
+        if (context.Path.TrimEnd('/') == "saleschart" && !salesLoaded)
+        {
+            IEnumerable<Assembly> assemblies = await AssemblyLoader.LoadAssembliesAsync(
+                new string[] { "SalesReportFeature.wasm" });
+            loadedAssemblies.AddRange(assemblies);
+            salesLoaded = true;
+        }
+        context.CancellationToken.ThrowIfCancellationRequested();
+    }
+}
